@@ -293,7 +293,6 @@ function createStackWidget(node) {
 
                 case 'info':
                     if (lora.name) {
-                        // Pass the current tags directly to the modal
                         openLoraModal(lora.name, lora.tags, () => {
                             updateTagsForIndex(mouseNode, hit.index, lora.name);
                         });
@@ -329,7 +328,6 @@ function createStackWidget(node) {
 // --- Civitai Tag Manager Modal ---
 async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
     let civitaiWords = [];
-    // Start with any tags that were already saved locally
     let customWords = currentTags ? currentTags.split(',').map(t => t.trim()).filter(t => t) : [];
 
     const dialog = document.createElement("dialog");
@@ -340,14 +338,17 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
         <p id="status_text" style="color: #a1a1aa;">Calculating file hash... Please wait.</p>
 
         <div id="civitai_content" style="display:none; margin-bottom: 20px; font-size: 14px; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px;">
-            <p style="margin-top:0;"><strong>Civitai Name:</strong> <span id="c_name" style="color:#fff;"></span></p>
+            <p style="margin-top:0; display:flex; align-items:center; gap:10px;">
+                <span><strong>Civitai Name:</strong> <span id="c_name" style="color:#fff;"></span></span>
+                <!-- Added Link Button Here! -->
+                <a id="c_link" href="#" target="_blank" style="display:none; background: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 2px 8px; border-radius: 4px; font-size: 12px; text-decoration: none; border: 1px solid rgba(59, 130, 246, 0.3); transition: 0.2s;">↗ View on Civitai</a>
+            </p>
             <p style="margin-bottom:0; font-size: 13px; color: #a1a1aa;"><strong>Trained Words Status:</strong> <span id="c_words_status"></span></p>
             <div id="c_images" style="display:flex; gap: 12px; overflow-x: auto; max-height: 250px; margin-top: 15px; padding-bottom: 5px;"></div>
         </div>
 
         <label style="font-weight: 500; font-size: 14px; color: #a1a1aa;">Master Database Triggers:</label>
         
-        <!-- The Tag Input Container -->
         <div style="background: rgba(0,0,0,0.2); border: 1px solid rgba(255,255,255,0.1); border-radius: 6px; padding: 12px; margin-top: 8px; margin-bottom: 20px; min-height: 80px;">
             <div id="tags_container" style="display:flex; flex-wrap:wrap; gap:8px; margin-bottom: 8px;"></div>
             <input id="new_tag_input" type="text" placeholder="Type a custom trigger word and press Enter..." style="width: 100%; background: transparent; color: #e4e4e7; border: none; outline: none; font-family: monospace; font-size: 13px;" />
@@ -365,11 +366,9 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
     const tagsContainer = dialog.querySelector("#tags_container");
     const tagInput = dialog.querySelector("#new_tag_input");
 
-    // Renders the bubbles based on current state
     function renderTags() {
         tagsContainer.innerHTML = "";
         
-        // 1. Locked Civitai Tags (Green)
         civitaiWords.forEach(tag => {
             const bubble = document.createElement("span");
             bubble.style.cssText = "background: rgba(52, 211, 153, 0.15); color: #34d399; padding: 4px 10px; border-radius: 12px; font-size: 12px; font-family: monospace; border: 1px solid rgba(52, 211, 153, 0.3); display: inline-flex; align-items: center; user-select: none;";
@@ -378,7 +377,6 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
             tagsContainer.appendChild(bubble);
         });
 
-        // 2. Custom Tags (Blue, Removable)
         customWords.forEach((tag, index) => {
             const bubble = document.createElement("span");
             bubble.style.cssText = "background: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 4px 8px 4px 10px; border-radius: 12px; font-size: 12px; font-family: monospace; border: 1px solid rgba(59, 130, 246, 0.3); display: inline-flex; align-items: center; gap: 6px;";
@@ -401,19 +399,15 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
         }
     }
 
-    // Render initially (so your manually saved tags show up right away)
     renderTags();
 
-    // Handle typing a new tag
     tagInput.addEventListener("keydown", (e) => {
         if (e.key === "Enter" || e.key === ",") {
             e.preventDefault();
             const val = tagInput.value.trim();
             if (val) {
-                // Split by comma if the user pasted a list
                 const newTags = val.split(",").map(t => t.trim()).filter(t => t);
                 newTags.forEach(t => {
-                    // Prevent duplicates
                     if (!civitaiWords.includes(t) && !customWords.includes(t)) {
                         customWords.push(t);
                     }
@@ -424,7 +418,6 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
         }
     });
 
-    // Fetch Civitai Data
     try {
         const hashRes = await fetch(`/loratags/get_hash?lora_name=${encodeURIComponent(loraName)}`);
         const hashData = await hashRes.json();
@@ -439,10 +432,16 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
                 dialog.querySelector("#civitai_content").style.display = "block";
                 dialog.querySelector("#c_name").innerText = civitaiData.model?.name || civitaiData.name || "Unknown";
                 
+                // Construct the link directly to the model's page and specific version
+                const cLink = dialog.querySelector("#c_link");
+                if (civitaiData.modelId && civitaiData.id) {
+                    cLink.href = `https://civitai.com/models/${civitaiData.modelId}?modelVersionId=${civitaiData.id}`;
+                    cLink.style.display = "inline-block";
+                }
+
                 if (civitaiData.trainedWords && civitaiData.trainedWords.length > 0) {
                     dialog.querySelector("#c_words_status").innerHTML = `<span style="color: #34d399;">Fetched successfully.</span>`;
                     civitaiWords = civitaiData.trainedWords;
-                    // Remove any custom words that match the newly fetched Civitai words to avoid duplicates
                     customWords = customWords.filter(w => !civitaiWords.includes(w));
                     renderTags();
                 } else {
@@ -472,7 +471,6 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
     });
 
     dialog.querySelector("#save_btn").addEventListener("click", async () => {
-        // Combine all active bubbles into a single comma-separated string
         const finalTags = [...new Set([...civitaiWords, ...customWords])].join(", ");
         
         await fetch("/loratags/save_tags", {
