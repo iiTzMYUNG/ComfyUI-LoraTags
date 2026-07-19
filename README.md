@@ -5,6 +5,8 @@
 
 **ComfyUI-LoraTags** is a powerful, sleek, and highly optimized LoRA loader for ComfyUI. It overhauls the standard LoRA loading experience by introducing a modern tag management system, automated Civitai metadata fetching, and seamless multi-LoRA stacking—all contained within a single, beautifully designed custom node.
 
+![ComfyUI LoraTags Node & Auto-Tags Text Encoder](LoraTagsNodes.png)
+
 ---
 
 ## ✨ Key Features
@@ -24,10 +26,13 @@ No more relying on `.txt` companion files cluttering your hard drive. All tags a
 * **Locked Tags (Green Bubbles):** Tags automatically retrieved from Civitai.
 * **Custom Tags (Blue Bubbles):** Tags you manually type in. Add, edit, or remove these at will.
 
-### 4. 📋 1-Click Clipboard Copying
-Your saved trigger words are displayed right on the ComfyUI canvas beneath your selected LoRA. Simply click the `📋` icon, and the tags are instantly copied to your system clipboard, ready to be pasted into your text prompt!
+### 4. 🔗 Auto-Tagging CLIP Text Encoder (NEW)
+Automatically route all your active LoRA trigger words directly into your prompt! By connecting the `TAGS` output to the custom **CLIP Text Encode (Auto-Tags)** node, your saved triggers are seamlessly stitched onto the end of your prompt. The node dynamically displays your active tags as beautiful, responsive bubbles right on the canvas.
 
-### 5. 🎨 Modern Canvas UI
+### 5. 📋 1-Click Clipboard Copying
+Prefer manual prompting? Your saved trigger words are displayed right on the ComfyUI canvas beneath your selected LoRA. Simply click the `📋` icon, and the tags are instantly copied to your system clipboard, ready to be pasted.
+
+### 6. 🎨 Modern Canvas UI
 Built with a custom HTML5 Canvas drawing engine, this node completely bypasses the clunky default LiteGraph UI. It features:
 * Smooth iOS-style toggle switches.
 * Glassmorphism elements and semi-transparent borders.
