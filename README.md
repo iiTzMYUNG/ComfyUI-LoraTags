@@ -5,7 +5,7 @@
 
 **ComfyUI-LoraTags** is a powerful, sleek, and highly optimized LoRA loader for ComfyUI. It overhauls the standard LoRA loading experience by introducing a modern tag management system, automated Civitai metadata fetching, and seamless multi-LoRA stacking—all contained within a single, beautifully designed custom node.
 
-![ComfyUI LoraTags Node & Auto-Tags Text Encoder](LoraTagsNodes.png)
+![ComfyUI LoraTags Node & Auto-Tags Text Encoder](docs/LoraTagsNodes.png)
 
 ---
 
