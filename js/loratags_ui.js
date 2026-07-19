@@ -3,6 +3,8 @@ import { app } from "../../scripts/app.js";
 app.registerExtension({
     name: "ComfyUI.LoraTags",
     async beforeRegisterNodeDef(nodeType, nodeData, app) {
+        
+        // --- 1. LoRA Loader Master Node ---
         if (nodeData.name === "LoraLoaderMasterDB") {
             const onNodeCreated = nodeType.prototype.onNodeCreated;
             const onConfigure = nodeType.prototype.onConfigure;
@@ -54,6 +56,150 @@ app.registerExtension({
                 return r;
             }
         }
+
+        // --- 2. NEW: Custom CLIP Text Encoder UI ---
+        if (nodeData.name === "CLIPTextEncodeWithTags") {
+            const onNodeCreated = nodeType.prototype.onNodeCreated;
+            
+            nodeType.prototype.onNodeCreated = function () {
+                const r = onNodeCreated ? onNodeCreated.apply(this, arguments) : undefined;
+                const node = this;
+
+                const tagsWidget = {
+                    name: "active_tags_display",
+                    type: "custom",
+                    value: null,
+                    lastTagsString: "", // Tracker to know when to trigger a resize
+                    
+                    getTags() {
+                        let activeTags = [];
+                        const tagsInput = node.inputs?.find(inp => inp.name === "tags");
+                        
+                        if (tagsInput && tagsInput.link) {
+                            const link = app.graph.links[tagsInput.link];
+                            if (link) {
+                                const originNode = app.graph.getNodeById(link.origin_id);
+                                if (originNode && originNode.type === "LoraLoaderMasterDB" && originNode.loraStack) {
+                                    originNode.loraStack.forEach(lora => {
+                                        if (lora.enabled && lora.name && lora.tags) {
+                                            const t = lora.tags.split(",").map(s => s.trim()).filter(s => s);
+                                            activeTags.push(...t);
+                                        }
+                                    });
+                                }
+                            }
+                        }
+                        return [...new Set(activeTags)];
+                    },
+
+                    computeSize(width) {
+                        const tags = this.getTags();
+                        // Increased default padding so it never clips the grey border
+                        if (tags.length === 0) return [width, 40]; 
+
+                        const margin = 10;
+                        let currentX = margin;
+                        let lines = 1;
+                        
+                        tags.forEach(tag => {
+                            const bubbleW = (tag.length * 7.5) + 30; 
+                            if (currentX + bubbleW > width - margin) {
+                                currentX = margin;
+                                lines++;
+                            }
+                            currentX += bubbleW + 6;
+                        });
+                        
+                        // Added +24 padding to the bottom so the node fully encapsulates the bubbles
+                        return [width, (lines * 28) + 24];
+                    },
+
+                    draw(ctx, drawNode, widgetWidth, posY) {
+                        const tags = this.getTags();
+                        const tagsStr = tags.join(",");
+                        
+                        // FIX: Force the node to expand its bounding box if the tags change
+                        if (this.lastTagsString !== tagsStr) {
+                            this.lastTagsString = tagsStr;
+                            requestAnimationFrame(() => {
+                                const minSize = drawNode.computeSize();
+                                if (drawNode.size[1] < minSize[1]) {
+                                    drawNode.size[1] = minSize[1];
+                                }
+                                app.graph.setDirtyCanvas(true, true);
+                            });
+                        }
+
+                        const margin = 10;
+                        let currentX = margin;
+                        let currentY = posY + 10;
+                        const bubbleHeight = 22;
+
+                        if (tags.length === 0) {
+                            ctx.fillStyle = "rgba(255,255,255,0.05)";
+                            drawRoundedRect(ctx, margin, currentY, widgetWidth - (margin * 2), bubbleHeight + 4, 6);
+                            ctx.fill();
+                            
+                            ctx.fillStyle = "#71717a";
+                            ctx.font = "italic 12px sans-serif";
+                            ctx.textAlign = "center";
+                            ctx.fillText("Connect 'TAGS' wire to see active triggers", widgetWidth / 2, currentY + 16);
+                            return;
+                        }
+
+                        ctx.font = "12px monospace";
+                        ctx.textAlign = "left";
+
+                        tags.forEach(tag => {
+                            const textW = ctx.measureText(tag).width;
+                            const bubbleW = textW + 16;
+
+                            if (currentX + bubbleW > widgetWidth - margin) {
+                                currentX = margin;
+                                currentY += bubbleHeight + 6;
+                            }
+
+                            ctx.fillStyle = "rgba(16, 185, 129, 0.1)";
+                            drawRoundedRect(ctx, currentX, currentY, bubbleW, bubbleHeight, 11);
+                            ctx.fill();
+                            
+                            ctx.strokeStyle = "rgba(16, 185, 129, 0.3)";
+                            ctx.lineWidth = 1;
+                            ctx.stroke();
+
+                            ctx.fillStyle = "#34d399";
+                            ctx.fillText(tag, currentX + 8, currentY + 15);
+
+                            currentX += bubbleW + 6;
+                        });
+                    }
+                };
+
+                node.addCustomWidget(tagsWidget);
+                return r;
+            };
+            
+            // FIX: Snap node to the correct size instantly when the wire is connected/disconnected
+            const onConnectionsChange = nodeType.prototype.onConnectionsChange;
+            nodeType.prototype.onConnectionsChange = function() {
+                if (onConnectionsChange) onConnectionsChange.apply(this, arguments);
+                const minSize = this.computeSize();
+                if (this.size[1] < minSize[1]) {
+                    this.size[1] = minSize[1];
+                }
+                this.setDirtyCanvas(true, true);
+            };
+
+            // FIX: Prevent the user from manually shrinking the node smaller than the bubbles
+            const onResize = nodeType.prototype.onResize;
+            nodeType.prototype.onResize = function(size) {
+                if (onResize) onResize.apply(this, arguments);
+                const minSize = this.computeSize();
+                if (size[1] < minSize[1]) {
+                    size[1] = minSize[1];
+                }
+            };
+        }
     }
 });
 
@@ -70,7 +216,7 @@ function syncStateToWidget(node) {
     if (dataWidget) {
         dataWidget.value = JSON.stringify(node.loraStack);
     }
-    node.setDirtyCanvas(true, true);
+    app.graph.setDirtyCanvas(true, true); 
 }
 
 async function updateTagsForIndex(node, index, loraName) {
@@ -340,7 +486,6 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
         <div id="civitai_content" style="display:none; margin-bottom: 20px; font-size: 14px; background: rgba(255,255,255,0.03); padding: 15px; border-radius: 8px;">
             <p style="margin-top:0; display:flex; align-items:center; gap:10px;">
                 <span><strong>Civitai Name:</strong> <span id="c_name" style="color:#fff;"></span></span>
-                <!-- Added Link Button Here! -->
                 <a id="c_link" href="#" target="_blank" style="display:none; background: rgba(59, 130, 246, 0.15); color: #60a5fa; padding: 2px 8px; border-radius: 4px; font-size: 12px; text-decoration: none; border: 1px solid rgba(59, 130, 246, 0.3); transition: 0.2s;">↗ View on Civitai</a>
             </p>
             <p style="margin-bottom:0; font-size: 13px; color: #a1a1aa;"><strong>Trained Words Status:</strong> <span id="c_words_status"></span></p>
@@ -432,7 +577,6 @@ async function openLoraModal(loraName, currentTags = "", onSaveCallback) {
                 dialog.querySelector("#civitai_content").style.display = "block";
                 dialog.querySelector("#c_name").innerText = civitaiData.model?.name || civitaiData.name || "Unknown";
                 
-                // Construct the link directly to the model's page and specific version
                 const cLink = dialog.querySelector("#c_link");
                 if (civitaiData.modelId && civitaiData.id) {
                     cLink.href = `https://civitai.com/models/${civitaiData.modelId}?modelVersionId=${civitaiData.id}`;
