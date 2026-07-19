@@ -59,7 +59,6 @@ async def save_tags_endpoint(request):
     
     return web.json_response({"status": "success"})
 
-# NEW: Quick fetch route to grab tags instantly for the canvas UI
 @PromptServer.instance.routes.get("/loratags/get_tags")
 async def get_tags_endpoint(request):
     lora_name = request.rel_url.query.get("lora_name", "")
@@ -80,14 +79,13 @@ class LoraLoaderMasterDB:
         return {"required": {
             "model": ("MODEL",),
             "clip": ("CLIP", ),
-            # We use a hidden JSON string to pass the stacked list from JS to Python
             "lora_stack_data": ("STRING", {"default": "[]"}),
-            # Dummy list to give our JS access to the filesystem loras
             "dummy_list": (folder_paths.get_filename_list("loras"), ),
         }}
 
-    # Removed the STRING output, now it just passes MODEL and CLIP
-    RETURN_TYPES = ("MODEL", "CLIP")
+    # Added STRING back to the outputs to pass the compiled tags to the Text Encoder
+    RETURN_TYPES = ("MODEL", "CLIP", "STRING")
+    RETURN_NAMES = ("MODEL", "CLIP", "TAGS")
     FUNCTION = "load_stacked_loras"
     CATEGORY = "loaders"
 
@@ -97,23 +95,62 @@ class LoraLoaderMasterDB:
         except Exception:
             lora_list = []
 
-        # Loop through every LoRA the user added to the node
+        active_tags = []
+
         for lora in lora_list:
             name = lora.get("name")
             strength = lora.get("strength", 1.0)
             enabled = lora.get("enabled", True)
+            tags = lora.get("tags", "")
             
-            # Skip if disabled, empty, or strength is 0
             if not enabled or not name or strength == 0:
                 continue
+
+            # Collect tags if the LoRA is active
+            if tags.strip():
+                active_tags.append(tags.strip())
 
             lora_path = folder_paths.get_full_path("loras", name)
             if not lora_path:
                 print(f"[LoRA Tags] Warning: Could not find {name}")
                 continue
                 
-            # Standard load logic
             loaded_lora = comfy.utils.load_torch_file(lora_path, safe_load=True)
             model, clip = comfy.sd.load_lora_for_models(model, clip, loaded_lora, strength, strength)
 
-        return (model, clip)
+        # Join all collected tags with a comma separator
+        final_tags_string = ", ".join(active_tags)
+
+        return (model, clip, final_tags_string)
+
+# --- NEW: Custom CLIP Text Encoder ---
+class CLIPTextEncodeWithTags:
+    @classmethod
+    def INPUT_TYPES(s):
+        return {"required": {
+            "text": ("STRING", {"multiline": True}), 
+            "clip": ("CLIP", ),
+            # forceInput=True turns the string field into an input node/wire on the canvas
+            "tags": ("STRING", {"forceInput": True}) 
+        }}
+        
+    RETURN_TYPES = ("CONDITIONING",)
+    FUNCTION = "encode"
+    CATEGORY = "conditioning"
+
+    def encode(self, clip, text, tags):
+        # Merge the user's base prompt with the incoming automated tags
+        final_prompt = text.strip()
+        if tags.strip():
+            # If the user's text is empty, just use the tags. Otherwise, separate with a comma.
+            if final_prompt:
+                final_prompt = final_prompt + ", " + tags.strip()
+            else:
+                final_prompt = tags.strip()
+                
+        print(f"[OpenLoraTags] Combined Prompt: {final_prompt}")
+        
+        # Standard CLIP encoding process
+        tokens = clip.tokenize(final_prompt)
+        cond, pooled = clip.encode_from_tokens(tokens, return_pooled=True)
+        return ([[cond, {"pooled_output": pooled}]], )
